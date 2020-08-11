@@ -38,6 +38,10 @@
 #include <malloc.h>
 #endif
 
+#ifdef ESP_PLATFORM
+#include <esp_heap_caps.h>
+#endif
+
 #include "cutils.h"
 #include "quickjs-libc.h"
 
@@ -128,9 +132,11 @@ static inline size_t js_trace_malloc_usable_size(void *ptr)
     return 0;
 #elif defined(__linux__)
     return malloc_usable_size(ptr);
+#elif defined(ESP_PLATFORM)
+    return heap_caps_get_allocated_size(ptr);
 #else
     /* change this to `return 0;` if compilation fails */
-    return 0;
+    return 0
 #endif
 }
 
@@ -244,9 +250,11 @@ static const JSMallocFunctions trace_mf = {
     NULL,
 #elif defined(__linux__)
     (size_t (*)(const void *))malloc_usable_size,
+#elif defined(ESP_PLATFORM)
+    heap_caps_get_allocated_size,
 #else
     /* change this to `NULL,` if compilation fails */
-    NULL,
+    NULL
 #endif
 };
 
