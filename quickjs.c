@@ -22,6 +22,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#ifdef ESP_PLATFORM
+#define __TM_GMTOFF tm_gmtoff
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -45,6 +49,10 @@
 #include "libregexp.h"
 #ifdef CONFIG_BIGNUM
 #include "libbf.h"
+#endif
+
+#ifdef ESP_PLATFORM
+#include <esp_heap_caps.h>
 #endif
 
 #define OPTIMIZE         1
@@ -1665,8 +1673,10 @@ static inline size_t js_def_malloc_usable_size(void *ptr)
     return 0;
 #elif defined(__linux__)
     return malloc_usable_size(ptr);
+#elif defined(ESP_PLATFORM)
+    // See: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/mem_alloc.html#_CPPv428heap_caps_get_allocated_sizePv
+    return heap_caps_get_allocated_size(ptr);
 #else
-    /* change this to `return 0;` if compilation fails */
     return 0;
 #endif
 }
@@ -1739,6 +1749,8 @@ static const JSMallocFunctions def_malloc_funcs = {
     NULL,
 #elif defined(__linux__)
     (size_t (*)(const void *))malloc_usable_size,
+#elif defined(ESP_PLATFORM)
+    heap_caps_get_allocated_size
 #else
     /* change this to `NULL,` if compilation fails */
     NULL,
@@ -41366,11 +41378,7 @@ static int getTimezoneOffset(int64_t time) {
     }
     ti = time;
     localtime_r(&ti, &tm);
-#ifndef ESP_PLATFORM
     return -tm.tm_gmtoff / 60;
-#else
-    return 0;
-#endif
 #endif
 }
 
