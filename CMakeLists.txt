@@ -8,7 +8,7 @@ idf_component_register(SRCS
                 "list.h" 
                 "qjs.c" "qjsc.c" "quickjs.c" "quickjs.h" "quickjs-atom.h" 
                 "quickjs-libc.c" "quickjs-libc.h" "quickjs-opcode.h"
-                "unicode_gen.c" "unicode_gen_def.h"
+                "unicode_gen.c" "unicode_gen_def.h" "esp/esp_api.c" "esp/esp_api.h"
         INCLUDE_DIRS ".")
 
 target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DCONFIG_VERSION=\"2020-07-05\"" "-D_GNU_SOURCE")
