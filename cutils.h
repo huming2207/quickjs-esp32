@@ -31,11 +31,6 @@
 /* set if CPU is big endian */
 #undef WORDS_BIGENDIAN
 
-#ifdef ESP_PLATFORM
-#undef likely
-#undef unlikely
-#endif
-
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
 #define force_inline inline __attribute__((always_inline))

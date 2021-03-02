@@ -50,6 +50,7 @@ extern const uint32_t qjsc_repl_size;
 #ifdef CONFIG_BIGNUM
 extern const uint8_t qjsc_qjscalc[];
 extern const uint32_t qjsc_qjscalc_size;
+static int bignum_ext;
 #endif
 
 static int eval_buf(JSContext *ctx, const void *buf, int buf_len,
@@ -105,6 +106,27 @@ static int eval_file(JSContext *ctx, const char *filename, int module)
     return ret;
 }
 
+/* also used to initialize the worker context */
+static JSContext *JS_NewCustomContext(JSRuntime *rt)
+{
+    JSContext *ctx;
+    ctx = JS_NewContext(rt);
+    if (!ctx)
+        return NULL;
+#ifdef CONFIG_BIGNUM
+    if (bignum_ext) {
+        JS_AddIntrinsicBigFloat(ctx);
+        JS_AddIntrinsicBigDecimal(ctx);
+        JS_AddIntrinsicOperators(ctx);
+        JS_EnableBignumExt(ctx, TRUE);
+    }
+#endif
+    /* system modules */
+    js_init_module_std(ctx, "std");
+    js_init_module_os(ctx, "os");
+    return ctx;
+}
+
 #if defined(__APPLE__)
 #define MALLOC_OVERHEAD  0
 #else
@@ -136,7 +158,7 @@ static inline size_t js_trace_malloc_usable_size(void *ptr)
     return heap_caps_get_allocated_size(ptr);
 #else
     /* change this to `return 0;` if compilation fails */
-    return 0
+    return malloc_usable_size(ptr);
 #endif
 }
 
@@ -149,13 +171,13 @@ static void __attribute__((format(printf, 2, 3)))
     va_start(ap, fmt);
     while ((c = *fmt++) != '\0') {
         if (c == '%') {
-            /* only handle %p and %zd */
+            /* only handle %p and %d */
             if (*fmt == 'p') {
                 uint8_t *ptr = va_arg(ap, void *);
                 if (ptr == NULL) {
                     printf("NULL");
                 } else {
-                    printf("H%+06lld.%zd",
+                    printf("H%+06lld.%d",
                            js_trace_malloc_ptr_offset(ptr, s->opaque),
                            js_trace_malloc_usable_size(ptr));
                 }
@@ -164,7 +186,7 @@ static void __attribute__((format(printf, 2, 3)))
             }
             if (fmt[0] == 'z' && fmt[1] == 'd') {
                 size_t sz = va_arg(ap, size_t);
-                printf("%zd", sz);
+                printf("%d", sz);
                 fmt += 2;
                 continue;
             }
@@ -189,7 +211,7 @@ static void *js_trace_malloc(JSMallocState *s, size_t size)
     if (unlikely(s->malloc_size + size > s->malloc_limit))
         return NULL;
     ptr = malloc(size);
-    js_trace_malloc_printf(s, "A %zd -> %p\n", size, ptr);
+    js_trace_malloc_printf(s, "A %d -> %p\n", size, ptr);
     if (ptr) {
         s->malloc_count++;
         s->malloc_size += js_trace_malloc_usable_size(ptr) + MALLOC_OVERHEAD;
@@ -219,7 +241,7 @@ static void *js_trace_realloc(JSMallocState *s, void *ptr, size_t size)
     }
     old_size = js_trace_malloc_usable_size(ptr);
     if (size == 0) {
-        js_trace_malloc_printf(s, "R %zd %p\n", size, ptr);
+        js_trace_malloc_printf(s, "R %d %p\n", size, ptr);
         s->malloc_count--;
         s->malloc_size -= old_size + MALLOC_OVERHEAD;
         free(ptr);
@@ -228,7 +250,7 @@ static void *js_trace_realloc(JSMallocState *s, void *ptr, size_t size)
     if (s->malloc_size + size - old_size > s->malloc_limit)
         return NULL;
 
-    js_trace_malloc_printf(s, "R %zd %p", size, ptr);
+    js_trace_malloc_printf(s, "R %d %p", size, ptr);
 
     ptr = realloc(ptr, size);
     js_trace_malloc_printf(s, " -> %p\n", ptr);
@@ -254,7 +276,7 @@ static const JSMallocFunctions trace_mf = {
     heap_caps_get_allocated_size,
 #else
     /* change this to `NULL,` if compilation fails */
-    NULL
+    malloc_usable_size,
 #endif
 };
 
@@ -302,7 +324,7 @@ int main(int argc, char **argv)
     char *include_list[32];
     int i, include_count = 0;
 #ifdef CONFIG_BIGNUM
-    int load_jscalc, bignum_ext = 0;
+    int load_jscalc;
 #endif
     size_t stack_size = 0;
     
@@ -434,6 +456,7 @@ int main(int argc, char **argv)
         }
     }
 
+
     if (trace_memory) {
         js_trace_malloc_init(&trace_data);
         rt = JS_NewRuntime2(&trace_mf, &trace_data);
@@ -448,22 +471,14 @@ int main(int argc, char **argv)
         JS_SetMemoryLimit(rt, memory_limit);
     if (stack_size != 0)
         JS_SetMaxStackSize(rt, stack_size);
+    js_std_set_worker_new_context_func(JS_NewCustomContext);
     js_std_init_handlers(rt);
-    ctx = JS_NewContext(rt);
+    ctx = JS_NewCustomContext(rt);
     if (!ctx) {
         fprintf(stderr, "qjs: cannot allocate JS context\n");
         exit(2);
     }
 
-#ifdef CONFIG_BIGNUM
-    if (bignum_ext || load_jscalc) {
-        JS_AddIntrinsicBigFloat(ctx);
-        JS_AddIntrinsicBigDecimal(ctx);
-        JS_AddIntrinsicOperators(ctx);
-        JS_EnableBignumExt(ctx, TRUE);
-    }
-#endif
-    
     /* loader for ES6 modules */
     JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
 
@@ -479,10 +494,6 @@ int main(int argc, char **argv)
         }
 #endif
         js_std_add_helpers(ctx, argc - optind, argv + optind);
-
-        /* system modules */
-        js_init_module_std(ctx, "std");
-        js_init_module_os(ctx, "os");
 
         /* make 'std' and 'os' visible to non module code */
         if (load_std) {
